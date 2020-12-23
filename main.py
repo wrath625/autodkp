@@ -6,6 +6,7 @@ import re
 import aiohttp
 import json
 import asyncio
+from dateutil import parser
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
 
@@ -226,7 +227,7 @@ class Parser:
         
         timestamp, event = self.parse_line(line)
     
-        if timestamp > datetime.strptime(self.event['created'], "%Y-%m-%dT%H:%M:%S%z"):
+        if timestamp > parser.parse(self.event['created']):
             
             if event[0] in ["ENCOUNTER_START", "ENCOUNTER_END"]:
                 self.encounters.append({
