@@ -150,7 +150,7 @@ class Parser:
         self.chapter_members = chapter_members
         self.eligible_members = []
         self.raid_members = []
-        self.connector = aiohttp.TCPConnector(limit=1)
+        self.connector = aiohttp.TCPConnector(limit=100)
         self.client = aiohttp.ClientSession(connector=self.connector, json_serialize=json.dumps)
 
         # Build eligible member list
@@ -193,20 +193,26 @@ class Parser:
                 self.started = True
                 print(f"{len(self.raid_members)} Starting Raid Members:")
                 print(self.raid_members)
-            await asyncio.sleep(10)
+            await asyncio.sleep(30)
 
     # Parse a combat log line and split the timestamp and event.
     def parse_line(self, line):
-        # two spaces are used to split the date/time field from the actual combat data
-        timestamp, event = line.split('  ')
-        timestamp = f"{datetime.now().year} {timestamp}"
+        # This is in a try block since enchanting a weapon will add another double-space to the log line
+        try:
+            # two spaces are used to split the date/time field from the actual combat data
+            timestamp, event = line.split('  ', 1)
+            timestamp = f"{datetime.now().year} {timestamp}"
 
-        timestamp = datetime.strptime(timestamp, '%Y %m/%d %H:%M:%S.%f')
-        timestamp = timestamp.astimezone(reference.LocalTimezone())
+            timestamp = datetime.strptime(timestamp, '%Y %m/%d %H:%M:%S.%f')
+            timestamp = timestamp.astimezone(reference.LocalTimezone())
 
-        event = event.replace('"', '')
-        event = event.split(',')
-        return timestamp, event
+            event = event.replace('"', '')
+            event = event.split(',')
+            return timestamp, event
+        except:
+            print(line)
+            return None, None
+        
 
     # Fix naming nonsense
     def clean_name(self, name):
@@ -226,18 +232,20 @@ class Parser:
     def find_encounters(self, where, line):
         
         timestamp, event = self.parse_line(line)
+
+        if timestamp is not None and event is not None:
     
-        if timestamp > parser.parse(self.event['created']):
-            
-            if event[0] in ["ENCOUNTER_START", "ENCOUNTER_END"]:
-                self.encounters.append({
-                    'type': event[0],
-                    'boss': event[2],
-                    'log_line': where,
-                    'timestamp': timestamp,
-                    'group_size': event[4],
-                    'processed': False,
-                })
+            if timestamp > parser.parse(self.event['created']):
+                
+                if event[0] in ["ENCOUNTER_START", "ENCOUNTER_END"]:
+                    self.encounters.append({
+                        'type': event[0],
+                        'boss': event[2],
+                        'log_line': where,
+                        'timestamp': timestamp,
+                        'group_size': event[4],
+                        'processed': False,
+                    })
 
     # Periodically check the list of encounters detected in the log file.
     # If an ENCOUNTER_END is found, parse it from start to finish
@@ -306,6 +314,8 @@ class Parser:
             line = f.readline()
 
             timestamp, event = self.parse_line(line)
+            if timestamp is None or event is None:
+                break
 
             # Parse combatant info at start of encounter to get playerGUIDS
             if event[0] == "COMBATANT_INFO":
@@ -338,14 +348,16 @@ class Parser:
     async def parse_initial_members(self, line):
         timestamp, event = self.parse_line(line)
 
-        if "SPELL_" in event[0]:
-            combatant = event[2]
-            combatant = self.clean_name(combatant)
-            
-            if self.eligible_member(combatant):
-                if combatant.lower() not in map(str.lower, self.raid_members):
-                    self.raid_members.append(combatant)
-                    await self.add_attendance([combatant])
+        if timestamp is not None and event is not None:
+
+            if "SPELL_" in event[0]:
+                combatant = event[2]
+                combatant = self.clean_name(combatant)
+                
+                if self.eligible_member(combatant):
+                    if combatant.lower() not in map(str.lower, self.raid_members):
+                        self.raid_members.append(combatant)
+                        await self.add_attendance([combatant])
 
     # Is the user an eligible member (IE tagged for chapter)
     def eligible_member(self, combatant):
