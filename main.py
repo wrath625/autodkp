@@ -12,8 +12,8 @@ from concurrent.futures import ThreadPoolExecutor
 
 io_pool_exc = ThreadPoolExecutor()
 
-USERNAME = "Gromph"
-PASSWORD = sys.argv[1]
+USERNAME = sys.argv[1]
+PASSWORD = sys.argv[2]
 
 BOSSES = {
     "The Prophet Skeram": {
