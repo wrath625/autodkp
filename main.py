@@ -10,6 +10,15 @@ from dateutil import parser
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
 
+
+import sys
+import pytesseract
+from PIL import Image
+from PIL import ImageGrab
+
+pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
+
+
 io_pool_exc = ThreadPoolExecutor()
 
 USERNAME = sys.argv[1]
@@ -219,13 +228,17 @@ class Parser:
         name = name.replace("-Heartseeker", "") \
                             .replace("ê","e") \
                             .replace("È", "E") \
+                            .replace("è", "e") \
+                            .replace("é", "e") \
                             .replace("Zelara", "Xel") \
                             .replace("Sade", "Rival") \
                             .replace("Sudowoodo", "Sudo") \
                             .replace("Coldhart", "Wiccaphase") \
                             .replace("Atikkus", "Attikus") \
                             .replace("Holysis", "ragma") \
-                            .replace("Bubrub", "Dontpolyme")
+                            .replace("Bubrub", "Dontpolyme") \
+                            .replace("Dontpolymee", "Dontpolyme") \
+                            .replace("Hildog", "Hil")
         return name
 
     # Look for ENCOUNTER_* lines in the live log
@@ -237,7 +250,7 @@ class Parser:
     
             if timestamp > parser.parse(self.event['created']):
                 
-                if event[0] in ["ENCOUNTER_START", "ENCOUNTER_END"]:
+                if event[0] in ["ENCOUNTER_START"]:
                     self.encounters.append({
                         'type': event[0],
                         'boss': event[2],
@@ -246,6 +259,16 @@ class Parser:
                         'group_size': event[4],
                         'processed': False,
                     })
+                if event[0] in ["ENCOUNTER_END"]:
+                    self.encounters.append({
+                        'type': event[0],
+                        'boss': event[2],
+                        'log_line': where+3000,
+                        'timestamp': timestamp,
+                        'group_size': event[4],
+                        'processed': False,
+                    })
+
 
     # Periodically check the list of encounters detected in the log file.
     # If an ENCOUNTER_END is found, parse it from start to finish
@@ -398,6 +421,107 @@ class Parser:
         resp = await self.client.post(f"https://www.addictguild.com/api/chapters/40/dkp/33/events/{self.event['slug']}/start/", headers=self.header)
         print(resp.status)
 
+    def screen_grab(self, rect):
+        """ Given a rectangle, return a PIL Image of that part of the screen.
+            Handles a Linux installation with and older Pillow by falling-back
+            to using XLib """
+
+        x, y, width, height = rect
+
+        image = ImageGrab.grab( bbox=[ x, y, x+width, y+height ] )
+        return image
+
+    async def read_chat(self):
+        # Area of screen to monitor
+        screen_rect = [
+            5,     # x
+            1128,   # y
+            616,    # width
+            275     # height
+        ]
+        chat_log = []
+        purchases = []
+
+        while (True):
+            image = self.screen_grab(screen_rect)        # Grab the area of the screen
+            ocr_text = pytesseract.image_to_string(image).strip()  # OCR the image
+
+            # add lines to growing chat log
+            for text in ocr_text.split("\n"):
+                if text not in chat_log:
+                    chat_log.append(text.replace("‘", "'"))
+            
+            # churn through chat log for purchases and add new ones
+            for log in chat_log:
+                if log.startswith(f"[R] [{USERNAME}]: [Biddikus] ["):
+                    if {"text": log, "posted": True} not in purchases:
+                        purchases.append({"text": log, "posted": False})
+            
+            # loop through purchases and do stuff on posted=false purchases
+            for purchase in purchases:
+                if purchase['posted'] is False:
+                    buy = purchase['text'].replace(f"[R] [{USERNAME}]: [Biddikus] ", "")
+                
+                    item = re.search(r"^.*\[(.*)\].*$", buy)
+                    item = item.group(1)
+                    user = re.search(r"sold to (.*) for", buy)
+                    user = user.group(1)
+                    dkp = re.search(r"for (.*)dkp", buy)
+                    dkp = int(dkp.group(1))
+
+                    check = {
+                        "item": {
+                            "title": item
+                        },
+                        "userDetail": {
+                            "displayName": user
+                        }
+                    }
+                    awarded_items = self.event['awardedItems']
+                    for item in awarded_items:
+                        try:
+                            del item['id']
+                            del item['dkp']
+                            del item['created']
+                            del item['event']
+                            del item['user']
+                            del item['item']['id']
+                            del item['item']['slug']
+                            del item['item']['game']
+                            del item['userDetail']['username']
+                            del item['userDetail']['slug']
+                            del item['userDetail']['avatar']
+                            del item['userDetail']['rank']
+                            del item['userDetail']['id']
+                            del item['sectionSlug']
+                        except:
+                            pass # already ran this for this item
+
+                    if check not in awarded_items:
+
+                        resp = await self.client.get(f"https://www.addictguild.com/api/chapters/40/dkp/33/events/{self.event['slug']}/", headers=self.header)
+                        self.event = await resp.json()
+
+                    if check not in awarded_items:
+
+                        user_id = None
+                        for attendee in self.event['attendees']:
+                            if attendee['userDetail']['displayName'] == user:
+                                user_id = attendee['user']
+
+                        data = {
+                            "user": user_id,
+                            "item": item,
+                            "dkp": dkp
+                        }
+                        # if we got a user id from the attendees try a post
+                        if user_id is not None:
+                            resp = await self.client.post(f"https://www.addictguild.com/api/chapters/40/dkp/33/events/{self.event['slug']}/items/", headers=self.header, json=data)
+                            print(f"Added [{item}] purchase to {user} for {dkp}dkp.")
+                        purchase['posted'] = True
+                        
+            await asyncio.sleep(15)
+
 def main():
     data = {"username": USERNAME, "password": PASSWORD}
     resp = requests.post('https://www.addictguild.com/api/auth/token/', json=data)
@@ -438,6 +562,7 @@ def main():
     loop.create_task(parser.live_reader())
     loop.create_task(parser.watch_encounters())
     loop.create_task(parser.check_event())
+    loop.create_task(parser.read_chat())
     print('starting loop')
     try:
         loop.run_forever()
