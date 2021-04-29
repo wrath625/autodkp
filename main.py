@@ -190,7 +190,7 @@ class Parser:
             await asyncio.sleep(0)
             if self.started is False:
                 await self.parse_initial_members(line)
-            self.find_encounters(where, line)
+            await self.find_encounters(where, line)
 
     # Periodically the event to see if it has started, or for any manual changes
     async def check_event(self):
@@ -242,15 +242,15 @@ class Parser:
         return name
 
     # Look for ENCOUNTER_* lines in the live log
-    def find_encounters(self, where, line):
+    async def find_encounters(self, where, line):
         
         timestamp, event = self.parse_line(line)
 
         if timestamp is not None and event is not None:
-    
             if timestamp > parser.parse(self.event['created']):
-                
                 if event[0] in ["ENCOUNTER_START"]:
+                    print('found encounter_start')
+                    # await asyncio.sleep(15)
                     self.encounters.append({
                         'type': event[0],
                         'boss': event[2],
@@ -260,10 +260,12 @@ class Parser:
                         'processed': False,
                     })
                 if event[0] in ["ENCOUNTER_END"]:
+                    print('found encounter_end')
+                    # await asyncio.sleep(15)
                     self.encounters.append({
                         'type': event[0],
                         'boss': event[2],
-                        'log_line': where+3000,
+                        'log_line': where+50000, # add a buffer since the kill can be after the encounter end
                         'timestamp': timestamp,
                         'group_size': event[4],
                         'processed': False,
@@ -308,32 +310,28 @@ class Parser:
 
         while True:
             where = f.tell()
-            if where > encounter_stop['log_line']:
-                if kill is True:
-                    print(f"{encounter_start['boss']} killed!")
+            if kill is True:
+                print(f"{encounter_start['boss']} encounter successful!")
 
-                    # Website API Logic
-                    if self.started is False:
-                        self.started = True
-                        print(f"{len(self.raid_members)} Starting Raid Members:")
-                        print(self.raid_members)
-                        await self.start_event()
-                        # Start the raid
-                    # Do Attendance diffing shit
-                    print('Combatants:')
-                    print(combatants)
-                    print(f"Expected length: {encounter_stop['group_size']}, actual length: {len(combatants)}")
-                    combatant_remove = self.diff_remove(combatants)
-                    combatant_add    = self.diff_add(combatants)
-                    print(f"Remove: {combatant_remove}")
-                    print(f"Add: {combatant_add}")
-                    self.raid_members = self.raid_members + combatant_add
-                    await self.add_attendance(combatant_add)
-                    # Add the kill
-                    await self.add_kill(encounter_start['boss'], BOSSES[encounter_start['boss']]['dkp'], kill_timestamp)
-                else:
-                    print('Wipe.')
+                # Website API Logic
+                if self.started is False:
+                    self.started = True
+                    await self.start_event()
+                    # Start the raid
+                # Do Attendance diffing shit
+                print('Combatants:')
+                print(combatants)
+                print(f"Expected length: {encounter_stop['group_size']}, Actual length: {len(combatants)}")
+                combatant_remove = self.diff_remove(combatants)
+                combatant_add    = self.diff_add(combatants)
+                print(f"Remove: {combatant_remove}")
+                print(f"Add: {combatant_add}")
+                self.raid_members = self.raid_members + combatant_add
+                await self.add_attendance(combatant_add)
+                # Add the kill
+                await self.add_kill(encounter_start['boss'], BOSSES[encounter_start['boss']]['dkp'], kill_timestamp)
                 break
+
             line = f.readline()
 
             timestamp, event = self.parse_line(line)
@@ -357,14 +355,19 @@ class Parser:
 
             # Check if the boss died
             if "UNIT_DIED" in event[0]:
-
+                print(f"{event[6]} killed.")
                 if encounter_start['boss'] in BOSSES:
-                    if event[6] in BOSSES[encounter_start['boss']]['name']:
-                        kill_count += 1
 
+                    if event[6] in BOSSES[encounter_start['boss']]['name']:                        
+                        kill_count += 1
                         if kill_count == BOSSES[encounter_start['boss']]['count']:
-                            kill = True
+                            kill = True                            
                             kill_timestamp = timestamp
+
+            if where > encounter_stop['log_line']:
+                print(f"Stopping at line {where}")
+                print('Wipe.')
+                break
 
     # This looks at any line before any encounters take place to look for potential attendees
     # and tracks them locally as well as adds them on the website
@@ -410,7 +413,7 @@ class Parser:
     # This handles the API request to the website only        
     async def add_kill(self, boss, dkp, timestamp):
         if boss not in self.event['entities']:
-            print(f'Adding {boss} to kill list')
+            print(f'Adding {boss} to website kill list')
             data = {"entity": boss, "dkp": dkp, "created": timestamp.isoformat()}
             resp = await self.client.post(f"https://www.addictguild.com/api/chapters/40/dkp/33/events/{self.event['slug']}/entities/", json=data, headers=self.header)
             print(resp.status)
@@ -430,6 +433,28 @@ class Parser:
 
         image = ImageGrab.grab( bbox=[ x, y, x+width, y+height ] )
         return image
+
+    def clean_awarded_items(self):
+        awarded_items = self.event['awardedItems']
+        for item in awarded_items:
+            try:
+                del item['id']
+                del item['dkp']
+                del item['created']
+                del item['event']
+                del item['user']
+                del item['item']['id']
+                del item['item']['slug']
+                del item['item']['game']
+                del item['userDetail']['username']
+                del item['userDetail']['slug']
+                del item['userDetail']['avatar']
+                del item['userDetail']['rank']
+                del item['userDetail']['id']
+                del item['sectionSlug']
+            except:
+                pass # already ran this for this item
+        return awarded_items
 
     async def read_chat(self):
         # Area of screen to monitor
@@ -463,10 +488,22 @@ class Parser:
                     buy = purchase['text'].replace(f"[R] [{USERNAME}]: [Biddikus] ", "")
                 
                     item = re.search(r"^.*\[(.*)\].*$", buy)
+                    if item is None:
+                        # fail and mark it complete
+                        purchase['posted'] = True
+                        continue
                     item = item.group(1)
                     user = re.search(r"sold to (.*) for", buy)
+                    if user is None:
+                        # fail and mark it complete
+                        purchase['posted'] = True
+                        continue
                     user = user.group(1)
                     dkp = re.search(r"for (.*)dkp", buy)
+                    if dkp is None:
+                        # fail and mark it complete
+                        purchase['posted'] = True
+                        continue
                     dkp = int(dkp.group(1))
 
                     check = {
@@ -477,33 +514,18 @@ class Parser:
                             "displayName": user
                         }
                     }
-                    awarded_items = self.event['awardedItems']
-                    for item in awarded_items:
-                        try:
-                            del item['id']
-                            del item['dkp']
-                            del item['created']
-                            del item['event']
-                            del item['user']
-                            del item['item']['id']
-                            del item['item']['slug']
-                            del item['item']['game']
-                            del item['userDetail']['username']
-                            del item['userDetail']['slug']
-                            del item['userDetail']['avatar']
-                            del item['userDetail']['rank']
-                            del item['userDetail']['id']
-                            del item['sectionSlug']
-                        except:
-                            pass # already ran this for this item
+
+                    awarded_items = self.clean_awarded_items()
 
                     if check not in awarded_items:
-
+                        # update the local cache of the raid in case the item was manually added
                         resp = await self.client.get(f"https://www.addictguild.com/api/chapters/40/dkp/33/events/{self.event['slug']}/", headers=self.header)
                         self.event = await resp.json()
 
-                    if check not in awarded_items:
+                    awarded_items = self.clean_awarded_items()
 
+                    if check not in awarded_items:
+                        # if the item is still not in the local cache
                         user_id = None
                         for attendee in self.event['attendees']:
                             if attendee['userDetail']['displayName'] == user:
@@ -518,6 +540,8 @@ class Parser:
                         if user_id is not None:
                             resp = await self.client.post(f"https://www.addictguild.com/api/chapters/40/dkp/33/events/{self.event['slug']}/items/", headers=self.header, json=data)
                             print(f"Added [{item}] purchase to {user} for {dkp}dkp.")
+                        else:
+                            print(f"User {user} not an attendee")
                         purchase['posted'] = True
                         
             await asyncio.sleep(15)
@@ -553,6 +577,8 @@ def main():
         if member['leaveDate'] is None:
             chapter_members.append(member['member'])
 
+    ocr = input('Do you want to enable OCR? [y/n]')
+
     loop = asyncio.get_event_loop()
     logfile = r"C:\Program Files (x86)\World of Warcraft\_classic_\Logs\WoWCombatLog.txt"
     f1 = open(logfile, encoding='utf-8')
@@ -562,7 +588,8 @@ def main():
     loop.create_task(parser.live_reader())
     loop.create_task(parser.watch_encounters())
     loop.create_task(parser.check_event())
-    loop.create_task(parser.read_chat())
+    if ocr == 'y':
+        loop.create_task(parser.read_chat())
     print('starting loop')
     try:
         loop.run_forever()
