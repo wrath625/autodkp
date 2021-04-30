@@ -232,12 +232,13 @@ class Parser:
                             .replace("é", "e") \
                             .replace("Zelara", "Xel") \
                             .replace("Sade", "Rival") \
-                            .replace("Sudowoodo", "Sudo") \
-                            .replace("Coldhart", "Wiccaphase") \
                             .replace("Atikkus", "Attikus") \
                             .replace("Holysis", "ragma") \
-                            .replace("Bubrub", "Dontpolyme") \
+                            .replace("Aftermath", "Dontpolyme") \
                             .replace("Dontpolymee", "Dontpolyme") \
+                            .replace("Weann", "beanhead") \
+                            .replace("Bayerl", "Romed") \
+                            .replace("Gandiisdruid", "Gandii") \
                             .replace("Hildog", "Hil")
         return name
 
@@ -250,7 +251,7 @@ class Parser:
             if timestamp > parser.parse(self.event['created']):
                 if event[0] in ["ENCOUNTER_START"]:
                     print('found encounter_start')
-                    # await asyncio.sleep(15)
+                    await asyncio.sleep(15)
                     self.encounters.append({
                         'type': event[0],
                         'boss': event[2],
@@ -261,7 +262,7 @@ class Parser:
                     })
                 if event[0] in ["ENCOUNTER_END"]:
                     print('found encounter_end')
-                    # await asyncio.sleep(15)
+                    await asyncio.sleep(15)
                     self.encounters.append({
                         'type': event[0],
                         'boss': event[2],
@@ -487,24 +488,27 @@ class Parser:
                 if purchase['posted'] is False:
                     buy = purchase['text'].replace(f"[R] [{USERNAME}]: [Biddikus] ", "")
                 
-                    item = re.search(r"^.*\[(.*)\].*$", buy)
-                    if item is None:
-                        # fail and mark it complete
-                        purchase['posted'] = True
+                    try:
+                        item = re.search(r"^.*\[(.*)\].*$", buy)
+                        if item is None:
+                            # fail and mark it complete
+                            purchase['posted'] = True
+                            continue
+                        item = item.group(1)
+                        user = re.search(r"sold to (.*) for", buy)
+                        if user is None:
+                            # fail and mark it complete
+                            purchase['posted'] = True
+                            continue
+                        user = user.group(1)
+                        dkp = re.search(r"for (.*)dkp", buy)
+                        if dkp is None:
+                            # fail and mark it complete
+                            purchase['posted'] = True
+                            continue
+                        dkp = int(dkp.group(1))
+                    except:
                         continue
-                    item = item.group(1)
-                    user = re.search(r"sold to (.*) for", buy)
-                    if user is None:
-                        # fail and mark it complete
-                        purchase['posted'] = True
-                        continue
-                    user = user.group(1)
-                    dkp = re.search(r"for (.*)dkp", buy)
-                    if dkp is None:
-                        # fail and mark it complete
-                        purchase['posted'] = True
-                        continue
-                    dkp = int(dkp.group(1))
 
                     check = {
                         "item": {
@@ -527,8 +531,8 @@ class Parser:
                     if check not in awarded_items:
                         # if the item is still not in the local cache
                         user_id = None
-                        for attendee in self.event['attendees']:
-                            if attendee['userDetail']['displayName'] == user:
+                        for attendee in self.eligible_members:
+                            if attendee['displayName'] == user:
                                 user_id = attendee['user']
 
                         data = {
