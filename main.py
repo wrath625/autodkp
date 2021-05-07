@@ -200,8 +200,6 @@ class Parser:
             self.event = await resp.json()
             if self.event['state'] == 'in_progress':
                 self.started = True
-                print(f"{len(self.raid_members)} Starting Raid Members:")
-                print(self.raid_members)
             await asyncio.sleep(30)
 
     # Parse a combat log line and split the timestamp and event.
@@ -356,7 +354,6 @@ class Parser:
 
             # Check if the boss died
             if "UNIT_DIED" in event[0]:
-                print(f"{event[6]} killed.")
                 if encounter_start['boss'] in BOSSES:
 
                     if event[6] in BOSSES[encounter_start['boss']]['name']:                        
@@ -413,6 +410,11 @@ class Parser:
 
     # This handles the API request to the website only        
     async def add_kill(self, boss, dkp, timestamp):
+        print('debug: if boss not in event list')
+        print(f"BOSS: {boss}")
+        print(self.event['entities'])
+
+
         if boss not in self.event['entities']:
             print(f'Adding {boss} to website kill list')
             data = {"entity": boss, "dkp": dkp, "created": timestamp.isoformat()}
@@ -462,7 +464,7 @@ class Parser:
         screen_rect = [
             5,     # x
             1128,   # y
-            616,    # width
+            618,    # width
             275     # height
         ]
         chat_log = []
@@ -476,16 +478,18 @@ class Parser:
             for text in ocr_text.split("\n"):
                 if text not in chat_log:
                     chat_log.append(text.replace("‘", "'"))
-            
+
             # churn through chat log for purchases and add new ones
             for log in chat_log:
-                if log.startswith(f"[R] [{USERNAME}]: [Biddikus] ["):
+                if log.startswith(f"[R] [{USERNAME}]: [Biddikus] [") and re.search(r"^.*\] sold.*$", log): # if items aren't parsing it is because of this line after and
                     if {"text": log, "posted": True} not in purchases:
+                        print(f"Appending Biddikus log: {log}")
                         purchases.append({"text": log, "posted": False})
-            
+
             # loop through purchases and do stuff on posted=false purchases
             for purchase in purchases:
                 if purchase['posted'] is False:
+                    print(f"Processing Purchase: {purchase}")
                     buy = purchase['text'].replace(f"[R] [{USERNAME}]: [Biddikus] ", "")
                 
                     try:
@@ -493,22 +497,28 @@ class Parser:
                         if item is None:
                             # fail and mark it complete
                             purchase['posted'] = True
+                            print('Failed to item')
                             continue
                         item = item.group(1)
                         user = re.search(r"sold to (.*) for", buy)
                         if user is None:
                             # fail and mark it complete
                             purchase['posted'] = True
+                            print('Failed to user')
                             continue
                         user = user.group(1)
                         dkp = re.search(r"for (.*)dkp", buy)
                         if dkp is None:
                             # fail and mark it complete
                             purchase['posted'] = True
+                            print('Failed to dkp amount')
                             continue
                         dkp = int(dkp.group(1))
                     except:
+                        print('Failed to process log line')
                         continue
+
+                    print(f"Succesfully parsed purchase of {item} by {user} for {dkp} dkp.")
 
                     check = {
                         "item": {
@@ -531,9 +541,10 @@ class Parser:
                     if check not in awarded_items:
                         # if the item is still not in the local cache
                         user_id = None
-                        for attendee in self.eligible_members:
-                            if attendee['displayName'] == user:
-                                user_id = attendee['user']
+                        for attendee in self.chapter_members:
+                            if self.clean_name(attendee['displayName']) == user:
+                                print(f"Found {self.clean_name(attendee['displayName'])} is purchaser of [{item}]")
+                                user_id = attendee['id']
 
                         data = {
                             "user": user_id,
@@ -545,7 +556,7 @@ class Parser:
                             resp = await self.client.post(f"https://www.addictguild.com/api/chapters/40/dkp/33/events/{self.event['slug']}/items/", headers=self.header, json=data)
                             print(f"Added [{item}] purchase to {user} for {dkp}dkp.")
                         else:
-                            print(f"User {user} not an attendee")
+                            print(f"Failed to add buy for {user}")
                         purchase['posted'] = True
                         
             await asyncio.sleep(15)
