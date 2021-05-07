@@ -481,7 +481,7 @@ class Parser:
 
             # churn through chat log for purchases and add new ones
             for log in chat_log:
-                if log.startswith(f"[R] [{USERNAME}]: [Biddikus] [") and re.search(r"^.*\] sold.*$", log): # if items aren't parsing it is because of this line after and
+                if log.startswith(f"[R] [{USERNAME}]: [Biddikus] [") and re.search(r"^.*\] sold.*$", log) is not None: # if items aren't parsing it is because of this line after and
                     if {"text": log, "posted": True} not in purchases:
                         print(f"Appending Biddikus log: {log}")
                         purchases.append({"text": log, "posted": False})
