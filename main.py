@@ -9,6 +9,8 @@ import asyncio
 from dateutil import parser
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
+import glob
+import os
 
 
 import sys
@@ -229,15 +231,20 @@ class Parser:
                             .replace("è", "e") \
                             .replace("é", "e") \
                             .replace("Zelara", "Xel") \
-                            .replace("Sade", "Rival") \
-                            .replace("Atikkus", "Attikus") \
+                            .replace("Totemsade", "Rival") \
+                            .replace("Srumar", "littlesimpin") \
                             .replace("Holysis", "ragma") \
                             .replace("Aftermath", "Dontpolyme") \
                             .replace("Dontpolymee", "Dontpolyme") \
                             .replace("Weann", "beanhead") \
+                            .replace("Stratos", "Krayner") \
+                            .replace("Tehbannedbus", "Tehshortbus") \
+                            .replace("Itsokikite", "Itso") \
+                            .replace("Aelois", "keylen") \
                             .replace("Bayerl", "Romed") \
+                            .replace("Notnotmag", "magnite") \
                             .replace("Gandiisdruid", "Gandii") \
-                            .replace("Hildog", "Hil")
+                            .replace("Malenh", "Kevlarr")
         return name
 
     # Look for ENCOUNTER_* lines in the live log
@@ -572,7 +579,7 @@ def main():
         print(resp.status_code, resp.reason)
         exit
 
-    resp = requests.get('https://www.addictguild.com/api/chapters/40/dkp/wow-40-man/active-events/', headers=header)
+    resp = requests.get('https://www.addictguild.com/api/chapters/40/dkp/tbc-25-man/active-events/', headers=header)
 
     print("Active Events:")
 
@@ -595,7 +602,11 @@ def main():
     ocr = input('Do you want to enable OCR? [y/n]')
 
     loop = asyncio.get_event_loop()
-    logfile = r"C:\Program Files (x86)\World of Warcraft\_classic_\Logs\WoWCombatLog.txt"
+    list_of_files = glob.glob("C:\\Program Files (x86)\\World of Warcraft\\_classic_\\Logs\\WoWCombatLog*")
+    logfile = max(list_of_files, key=os.path.getctime)
+    print(logfile)
+
+    # logfile = r"C:\Program Files (x86)\World of Warcraft\_classic_\Logs\WoWCombatLog-052521_172926.txt"
     f1 = open(logfile, encoding='utf-8')
     f2 = open(logfile, encoding='utf-8')
     parser = Parser(header, loop, f1, f2, event, chapter_members)
