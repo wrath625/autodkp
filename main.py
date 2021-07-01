@@ -146,6 +146,21 @@ BOSSES = {
         "name": ["Kel'Thuzad"],
         "count": 1,
         "dkp": 40
+    },
+    "Magtheridon": {
+        "name": ["Magtheridon"],
+        "count": 1,
+        "dkp": 1,
+    },
+    "High King Maulgar": {
+        "name": ["High King Maulgar"],
+        "count": 1,
+        "dkp": 1,
+    },
+    "Gruul the Dragonkiller": {
+        "name": ["Gruul the Dragonkiller"],
+        "count": 1,
+        "dkp": 1,
     }
 }
 
